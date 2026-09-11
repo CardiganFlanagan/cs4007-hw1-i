@@ -49,9 +49,19 @@ def build_prompt(corrupted: str) -> str:
     Asking for a fixed shape instead of prose is how you make six models
     comparable. Week 3 turns this into a topic.
     """
-    # TODO
-    raise NotImplementedError
+    return (
+        "The following text is in Kazakh. It may contain errors: wrong letters "
+        "(e.g. Cyrillic letters from Russian instead of Kazakh-specific letters "
+        "like ә, қ, ғ, ң, ө, ұ, і, h), words that got joined together, or letters "
+        "from the wrong alphabet (Latin homoglyphs mixed into Cyrillic text).\n\n"
+        "Fix the text and list every change you made.\n\n"
+        "Respond with EXACTLY this JSON and nothing else - no markdown, no "
+        "explanation outside the JSON:\n"
+        '{"corrected": "...", "changes": ["...", "..."]}\n\n'
+        f"Text: {corrupted}"
+    )
 
+import re
 
 def parse_response(text: str) -> dict:
     """Pull {"corrected": str, "changes": list} out of the model's reply.
@@ -60,8 +70,22 @@ def parse_response(text: str) -> dict:
     like. Be forgiving: find the JSON, parse it, and raise ValueError with the
     offending text if you truly cannot.
     """
-    # TODO
-    raise NotImplementedError
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    candidate = fence.group(1) if fence else text
+
+    match = re.search(r"\{.*\}", candidate, re.DOTALL)
+    if not match:
+        raise ValueError(f"No JSON object found in: {text!r}")
+
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Could not parse JSON from: {text!r}") from exc
+
+    if "corrected" not in data or "changes" not in data:
+        raise ValueError(f"Missing required keys in: {text!r}")
+
+    return data
 
 
 def correct_with(model: str, corrupted: str, via: str) -> dict:
@@ -75,8 +99,16 @@ def correct_with(model: str, corrupted: str, via: str) -> dict:
     `ask_once` from sublab_easy - there is no conversation here, just one
     prompt and one reply, eight times per model.
     """
-    # TODO
-    raise NotImplementedError
+    prompt = build_prompt(corrupted)
+    reply = ask_once(prompt, model=model, via=via)
+    parsed = parse_response(reply["text"])
+    return {
+        "corrected": parsed["corrected"],
+        "changes": parsed["changes"],
+        "input_tokens": reply["input_tokens"],
+        "output_tokens": reply["output_tokens"],
+        "model": model,
+    }
 
 
 def score_correction(returned: str, expected: str) -> dict:
@@ -90,9 +122,12 @@ def score_correction(returned: str, expected: str) -> dict:
     the original still counts as a correction. Your written analysis is where
     you make that call.
     """
-    # TODO
-    raise NotImplementedError
-
+    exact = returned == expected
+    diff_len = abs(len(returned) - len(expected))
+    common = min(len(returned), len(expected))
+    mismatched = sum(1 for a, b in zip(returned[:common], expected[:common]) if a != b)
+    char_diff = mismatched + diff_len
+    return {"exact": exact, "char_diff": char_diff}
 
 def run_all() -> list[dict]:
     """Every model against every sentence. One row per (model, sentence)."""

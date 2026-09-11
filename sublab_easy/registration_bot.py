@@ -70,8 +70,11 @@ def openrouter_client() -> OpenAI:
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY is not set. Copy .env.example to .env.")
-    # TODO: return an OpenAI client whose base_url is OPENROUTER_BASE_URL
-    raise NotImplementedError
+    
+    return OpenAI(
+        api_key=key,
+        base_url=OPENROUTER_BASE_URL,
+    )
 
 
 def client_for(via: str) -> OpenAI:
@@ -107,8 +110,56 @@ def build_system_prompt(catalogue: dict) -> str:
     Returns:
         The system prompt, as a single string.
     """
-    # TODO
-    raise NotImplementedError
+    student = catalogue["student"]
+    rules = catalogue["rules"]
+    courses = catalogue["courses"]
+
+    lines = [
+        "You are a course registration assistant.",
+        f"Student year: {student['year']}.",
+        f"Student programme: {student['programme']}.",
+        f"Completed courses: {', '.join(student['completed'])}.",
+        f"Minimum credits: {rules['min_credits']}.",
+        f"Maximum credits: {rules['max_credits']}.",
+        "",
+        "Course catalogue:"
+    ]
+
+    for course in courses:
+        prerequisites = (
+            ", ".join(course["prerequisites"])
+            if course["prerequisites"]
+            else "none"
+        )
+
+        schedule = "; ".join(
+            f"{slot['day']} {slot['start']}-{slot['end']}"
+            for slot in course["schedule"]
+        )
+
+        remaining = course["seats_total"] - course["seats_taken"]
+
+        lines.append(
+            f"{course['code']} — {course['title']} — "
+            f"{course['credits']} credits — "
+            f"prerequisites: {prerequisites} — "
+            f"schedule: {schedule} — "
+            f"remaining seats: {remaining}"
+        )
+
+    lines.extend([
+        "",
+        "Registration rules:",
+        rules["note"],
+        "",
+        "IMPORTANT: Only discuss and register courses that appear in the "
+        "catalogue above. Never invent a course, course code, credits, "
+        "schedule, instructor, or other catalogue information.",
+        "If a requested course is not in the catalogue, refuse the request "
+        "and clearly say that the course is not in the catalogue."
+    ])
+
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------
@@ -130,9 +181,24 @@ def chat(messages: list[dict], model: str = "gpt-5.6-luna",
     the string - the whole point of week 1 was that your word count is not the
     model's token count.
     """
-    # TODO: client_for(via).chat.completions.create(...), then pull the text
-    #       out of .choices and the counts out of .usage.
-    raise NotImplementedError
+    client = client_for(via)
+    kwargs = {"model": model, "messages": messages}
+
+    # у новых OpenAI-моделей параметр называется иначе
+    if via == "openai":
+        kwargs["max_completion_tokens"] = 4000
+    else:
+        kwargs["max_tokens"] = 8000
+
+    response = client.chat.completions.create(**kwargs)
+    choice = response.choices[0]
+    usage = response.usage
+    return {
+        "text": choice.message.content,
+        "input_tokens": usage.prompt_tokens,
+        "output_tokens": usage.completion_tokens,
+        "model": model,
+    }
 
 
 def ask_once(prompt: str, model: str = "gpt-5.6-luna",
@@ -183,8 +249,10 @@ def estimate_cost(input_tokens: int, output_tokens: int,
     >>> estimate_cost(0, 0, 5.0, 30.0)
     0.0
     """
-    # TODO
-    raise NotImplementedError
+    return (
+        input_tokens * rate_in / 1_000_000
+        + output_tokens * rate_out / 1_000_000
+    )
 
 
 def cost_of(usage: dict) -> float:
@@ -202,8 +270,7 @@ def conversation_cost(usages: list[dict]) -> float:
     >>> conversation_cost([])
     0.0
     """
-    # TODO
-    raise NotImplementedError
+    return sum(cost_of(usage) for usage in usages)
 
 
 # --------------------------------------------------------------------------
@@ -217,7 +284,7 @@ SCRIPT = [
     "Register me for CSS-4007 and CSS-4102.",
     "How many credits would that be in total, and am I within the limit?",
     "Add CSS-4090 Quantum Machine Learning to my schedule.",
-    "TODO: turn 1 again, written in Kazakh or Russian",
+    "Я студент третьего курса. К каким курсам у меня все еще есть доступ для регистрации?",
 ]
 
 
